@@ -1,12 +1,13 @@
-import Hero from "@/components/hero";
-import ConnectSupabaseSteps from "@/components/tutorial/connect-supabase-steps";
-import SignUpUserSteps from "@/components/tutorial/sign-up-user-steps";
-import { hasEnvVars } from "@/utils/supabase/check-env-vars";
+import "./globals.css";
+import Form from "@/components/custom/form";
+
 
 export default async function Index() {
-  return (
-    <>
-    <main>Hello World!</main>
-    </>
-  );
+
+	return (
+		<>
+			<h1 className="text-4xl text-center">TITLE A LA BA SA QA NA TA</h1>
+			<Form></Form>
+		</>
+	);
 }

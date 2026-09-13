@@ -1,6 +1,8 @@
 name: Sync with Original Repo (Main Branch)
 
 on:
+  schedule:
+    - cron: "*/10 * * * *"  # Every 10 minutes
   workflow_dispatch:  # Allows manual triggering
 
 jobs:
@@ -17,21 +19,73 @@ jobs:
         run: |
           git config user.name "karam14"
           git config user.email "krm-011@hotmail.com"
-        
-      - name: Sync main branch with upstream (reset)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Backup local workflows
         run: |
-          # Set authenticated remote URL
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/karam14/binary-breakers-frontend.git
-          
-          # Add upstream and fetch changes
+          # Create a temporary backup of the .github/workflows directory
+          cp -r .github/workflows /tmp/workflows_backup
+
+      - name: Set up origin with PAT
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          # Set authenticated URL for origin using PAT_TOKEN
+          git remote set-url origin https://x-access-token:${PAT_TOKEN}@github.com/karam14/binary-breakers-frontend.git
+
+      - name: Add upstream and fetch updates
+        run: |
           git remote add upstream https://github.com/Binary-Breakers/Frontend.git || true
           git fetch upstream
-          
-          # Reset main branch to match upstream/main
+
+      - name: Check for changes in target project directory
+        id: changes
+        run: |
+          # Check for changes in binarybreakersfrontend compared to upstream/main
+          if git diff --quiet HEAD upstream/main -- binarybreakersfrontend; then
+            echo "No changes in project files. Only pushing workflows."
+            echo "should_commit=workflows" >> $GITHUB_ENV
+          else
+            echo "Changes detected in project files."
+            echo "should_commit=all" >> $GITHUB_ENV
+          fi
+
+      - name: Sync main branch with upstream
+        run: |
+          # Check out and reset to upstream/main
           git checkout main
           git reset --hard upstream/main
-          
-          # Force-push to the fork's main branch
+
+      - name: Restore local workflows
+        run: |
+          # Restore the original .github/workflows directory from backup
+          rm -rf .github/workflows
+          mv /tmp/workflows_backup .github/workflows
+
+      - name: Commit workflows only with [skip deploy] flag
+        if: env.should_commit == 'workflows'
+        run: |
+          # Add and commit the restored .github/workflows directory with a skip deploy message
+          git add .github/workflows
+          git commit -m "Restore workflows directory [skip deploy]"
+
+      - name: Commit all changes (project + workflows)
+        if: env.should_commit == 'all'
+        run: |
+          # Add and commit both project and workflows changes
+          git add .github/workflows
+          git add binarybreakersfrontend
+          git commit -m "Sync with upstream changes"
+
+      - name: Force-push workflows only (no deploy)
+        if: env.should_commit == 'workflows'
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          git push origin main --force
+
+      - name: Force-push all changes
+        if: env.should_commit == 'all'
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
           git push origin main --force

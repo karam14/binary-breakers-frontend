@@ -1,6 +1,8 @@
 name: Sync with Original Repo (Dev Branch)
 
 on:
+  schedule:
+    - cron: "0 */2 * * *"  # Every 2 hours
   workflow_dispatch:  # Allows manual triggering
 
 jobs:
@@ -12,26 +14,83 @@ jobs:
         uses: actions/checkout@v3
         with:
           persist-credentials: false  # Disable GitHub token for this step
+          ref: dev  # Explicitly check out the dev branch
 
       - name: Configure Git
         run: |
           git config user.name "karam14"
           git config user.email "krm-011@hotmail.com"
-        
-      - name: Sync dev branch with upstream (reset)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Backup local workflows
         run: |
-          # Set authenticated remote URL
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/karam14/binary-breakers-frontend.git
-          
-          # Add upstream and fetch changes
+          # Create a temporary backup of the .github/workflows directory
+          cp -r .github/workflows /tmp/workflows_backup
+
+      - name: Set up origin with PAT
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          # Set authenticated URL for origin using PAT_TOKEN
+          git remote set-url origin https://x-access-token:${PAT_TOKEN}@github.com/karam14/binary-breakers-frontend.git
+
+      - name: Add upstream and fetch dev branch only
+        run: |
           git remote add upstream https://github.com/Binary-Breakers/Frontend.git || true
-          git fetch upstream
-          
-          # Reset dev branch to match upstream/dev
+          # Fetch only the dev branch from upstream to avoid any influence from main
+          git fetch upstream dev
+
+      - name: Check for changes in target project directory
+        id: changes
+        run: |
+          # Check for changes in binarybreakersfrontend compared to upstream/dev
+          if git diff --quiet HEAD upstream/dev -- binarybreakersfrontend; then
+            echo "No changes in project files. Only pushing workflows."
+            echo "should_commit=workflows" >> $GITHUB_ENV
+          else
+            echo "Changes detected in project files:"
+            # Capture and display the list of changed files
+            CHANGED_FILES=$(git diff --name-only HEAD upstream/dev -- binarybreakersfrontend)
+            echo "$CHANGED_FILES"
+            echo "should_commit=all" >> $GITHUB_ENV
+          fi
+
+      - name: Sync dev branch with upstream
+        run: |
+          # Check out and reset to upstream/dev
           git checkout dev
           git reset --hard upstream/dev
-          
-          # Force-push to the fork's dev branch
+
+      - name: Restore local workflows
+        run: |
+          # Restore the original .github/workflows directory from backup
+          rm -rf .github/workflows
+          mv /tmp/workflows_backup .github/workflows
+
+      - name: Commit workflows only with [skip deploy] flag
+        if: env.should_commit == 'workflows'
+        run: |
+          # Add and commit the restored .github/workflows directory with a skip deploy message
+          git add .github/workflows
+          git commit -m "Restore workflows directory [skip deploy]"
+
+      - name: Commit all changes (project + workflows)
+        if: env.should_commit == 'all'
+        run: |
+          # Add and commit both project and workflows changes
+          git add .github/workflows
+          git add binarybreakersfrontend
+          git commit -m "Sync with upstream changes"
+
+      - name: Force-push workflows only (no deploy)
+        if: env.should_commit == 'workflows'
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          git push origin dev --force
+
+      - name: Force-push all changes
+        if: env.should_commit == 'all'
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
           git push origin dev --force
